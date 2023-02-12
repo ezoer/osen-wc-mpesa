@@ -120,7 +120,10 @@ class C2B
 	}
 
 	/**
-	 * Function to generate access token
+	 * Function to generate  or store a pre-existing access token.
+	 * 
+	 * Note: This code is virtually a duplicate of STK->authorize. The only significant
+	 *       difference is that each function returns it's own object type.
 	 *
 	 * @return C2B
 	 */
@@ -323,13 +326,15 @@ class C2B
 	 */
 	public function reverse($transaction, $amount, $receiver = "", $receiver_type = 3, $remarks = "Reversal", $occasion = "Transaction Reversal", $callback = null)
 	{
+		// TODO: Hard-coded for Kenya.
 		$phone      = '254' . substr($receiver, -9);
 		$env        = $this->env;
+        // Encrypt the initiator password using the M-PESA public key certificate
 		$plain_text = $this->password;
+        // Load the M-PESA public key from file
 		$public_key = file_get_contents(__DIR__ . "/cert/{$env}/cert.cer");
-
+        // Encrypt the plain text password
 		openssl_public_encrypt($plain_text, $encrypted, $public_key, OPENSSL_PKCS1_PADDING);
-
 		$password  = base64_encode($encrypted);
 		$post_data = array(
 			"CommandID"              => "TransactionReversal",

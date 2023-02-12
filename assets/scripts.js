@@ -5,15 +5,15 @@ jQuery(document).ready(function ($) {
         $("#billing_mpesa_phone").val($(this).val())
     });
 
-    $('#renitiate-mpesa-form').submit(function (e) {
+    $('#reinitiate-mpesa-form').submit(function (e) {
         e.preventDefault();
-        $('#renitiate-button').prop('disabled', true);
+        $('#reinitiate-button').prop('disabled', true);
 
         var form = $(this);
 
         $.post(form.attr('action'), form.serialize(), function (data) {
             if(data.errorCode) {
-                $('#renitiate-mpesa-button').prop('disabled', false);
+                $('#reinitiate-mpesa-button').prop('disabled', false);
                 alert(data.errorMessage);
             } else {
                 $("#mpesa_receipt")
@@ -56,7 +56,7 @@ jQuery(document).ready(function ($) {
                         }
 
                         $("#missed_stk").hide();
-                        $("#renitiate-mpesa-table").hide();
+                        $("#reinitiate-mpesa-table").hide();
                         $("#mpesa_request").hide();
 
                         clearInterval(checker);

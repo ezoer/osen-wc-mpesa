@@ -11,10 +11,17 @@ use Osen\Woocommerce\Mpesa\C2B;
 use Osen\Woocommerce\Mpesa\STK;
 
 /**
- * Handle a custom 'mpesa_request_id' query var to get orders with the 'mpesa_request_id' meta.
+ * Handle a custom 'mpesa_request_id' query var to get orders with the 'mpesa_request_id' or
+ * 'mpesa_phone' meta.
+ * 
  * @param array $query - Args for WP_Query.
  * @param array $query_vars - Query vars from WC_Order_Query.
  * @return array modified $query
+ * 
+ * TODO: Currently, the plugin's language is English. Some parts are ready for translation
+ *       using the WordPress __() function style to allow for static texts to be translated.
+ *       However, not all static text is handled like this. For example static HTML and the
+ *       return of some error codes.
  */
 add_filter('woocommerce_order_data_store_cpt_get_orders_query', function ($query, $query_vars) {
     if (!empty($query_vars['mpesa_request_id'])) {
@@ -38,6 +45,8 @@ function wc_mpesa_post_id_by_meta_key_and_value($key, $value)
 {
     $orders = wc_get_orders(array($key => $value));
 
+    # If $orders is empty, return false, otherwise return the
+    # ID for the first order in the array of orders found.
     return empty($orders) ? false : reset($orders)->get_id();
 }
 
@@ -60,7 +69,7 @@ add_action('plugins_loaded', function () {
             public $sign;
             public $debug           = false;
             public $enable_c2b      = false;
-            public $enable_bonga      = false;
+            public $enable_bonga    = false;
             public $enable_reversal = false;
             public $enable_for_methods;
             public $enable_for_virtual;
@@ -99,9 +108,16 @@ add_action('plugins_loaded', function () {
                 $this->env                = $this->get_option('env', 'sandbox');
 
                 $this->method_description = (($this->env === 'live')
-                    ? __('Receive payments via Safaricom M-PESA', 'woocommerce')
+                    ? __('Receive payments via M-PESA', 'woocommerce')
                     : __('This plugin comes preconfigured so you can test it out of the box. Afterwards, you can view instructions on <a href="' . admin_url('admin.php?page=wc_mpesa_go_live') . '">how to Go Live</a>', 'woocommerce'));
 
+                # Adding actions for various hooks. Note that the functions to be called
+                # are passed as array values instead of function names because we cannot
+                # directly refer to an object's function. Hence, we pass an array pointing
+                # to the object and the name of the object's function. For example, in the
+                # first statement below, we are telling WordPress to call 'thankyou_page'
+                # as a function of '$this' object whenever the hook 'woocommerce_thankyou_mpesa'
+                # is triggered.
                 add_action('woocommerce_thankyou_mpesa', array($this, 'thankyou_page'));
                 add_action('woocommerce_thankyou_mpesa', array($this, 'request_body'), 1);
                 add_action('woocommerce_receipt_mpesa', array($this, 'validate_payment'), 2);
@@ -134,14 +150,14 @@ add_action('plugins_loaded', function () {
             {
                 return array(
                     'env'        => $this->get_option('env', 'sandbox'),
-                    'appkey'     => $this->get_option('key', '9v38Dtu5u2BpsITPmLcXNWGMsjZRWSTG'),
-                    'appsecret'  => $this->get_option('secret', 'bclwIPkcRqw61yUt'),
-                    'headoffice' => $this->get_option('headoffice', 174379),
-                    'shortcode'  => $this->get_option('shortcode', 174379),
-                    'initiator'  => $this->get_option('initiator', 'test'),
-                    'password'   => $this->get_option('password', 'lipia'),
-                    'type'       => (int) ($this->get_option('idtype', 4)),
-                    'passkey'    => $this->get_option('passkey', 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919'),
+                    'appkey'     => $this->get_option('key', ''),
+                    'appsecret'  => $this->get_option('secret', ''),
+                    'headoffice' => $this->get_option('headoffice', 0),
+                    'shortcode'  => $this->get_option('shortcode', 0),
+                    'initiator'  => $this->get_option('initiator', ''),
+                    'password'   => $this->get_option('password', ''),
+                    'type'       => (int) ($this->get_option('idtype', 4)), # 4 = Paybill number 
+                    'passkey'    => $this->get_option('passkey', ''),
                     'reference'  => $this->get_option('reference', ''),
                     'signature'  => $this->get_option('signature', md5(rand(12, 999))),
                 );
@@ -212,35 +228,35 @@ add_action('plugins_loaded', function () {
                         'title'       => __('Store Number', 'woocommerce'),
                         'type'        => 'text',
                         'description' => __('Your Store Number. Use "Online Shortcode" in Sandbox', 'woocommerce'),
-                        'default'     => __(174379, 'woocommerce'),
+                        'default'     => __(0, 'woocommerce'),
                         'desc_tip'    => true,
                     ),
                     'shortcode'          => array(
                         'title'       => __('Business Shortcode', 'woocommerce'),
                         'type'        => 'text',
                         'description' => __('Your M-Pesa Business Till/Paybill Number. Use "Online Shortcode" in Sandbox', 'woocommerce'),
-                        'default'     => __(174379, 'woocommerce'),
+                        'default'     => __(0, 'woocommerce'),
                         'desc_tip'    => true,
                     ),
                     'key'                => array(
                         'title'       => __('App Consumer Key', 'woocommerce'),
                         'type'        => 'text',
-                        'description' => __('Your App Consumer Key From Safaricom Daraja.', 'woocommerce'),
-                        'default'     => '9v38Dtu5u2BpsITPmLcXNWGMsjZRWSTG',
+                        'description' => __('Your App Consumer Key From M-PESA.', 'woocommerce'),
+                        'default'     => '',
                         'desc_tip'    => true,
                     ),
                     'secret'             => array(
                         'title'       => __('App Consumer Secret', 'woocommerce'),
                         'type'        => 'text',
-                        'description' => __('Your App Consumer Secret From Safaricom Daraja.', 'woocommerce'),
-                        'default'     => 'bclwIPkcRqw61yUt',
+                        'description' => __('Your App Consumer Secret From M-PESA.', 'woocommerce'),
+                        'default'     => '',
                         'desc_tip'    => true,
                     ),
                     'passkey'            => array(
                         'title'       => __('Online Pass Key', 'woocommerce'),
                         'type'        => 'text',
                         'description' => __('Used to create a password for use when making a Lipa Na M-Pesa Online Payment API call.', 'woocommerce'),
-                        'default'     => 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919',
+                        'default'     => '',
                         'desc_tip'    => true,
                         'class'       => 'wide-input',
                         'css'         => 'min-width: 55%;',
@@ -323,7 +339,7 @@ add_action('plugins_loaded', function () {
                         'default'     => 'no',
                     ),
                     'debug_title'              => array(
-                        'title'       => __('You can send the following URLs to Daraja team on request', 'woocommerce'),
+                        'title'       => __('You can send the following URLs to M-PESA team on request', 'woocommerce'),
                         'type'        => 'title',
                         'description' => '<ul class="woocommerce_mpesa_debug_text">
                         <li>Validation URL for C2B: <a href="' . home_url('wc-api/lipwa?action=validate&sign=' . $this->sign) . '">' . home_url('wc-api/lipwa?action=validate&sign=' . $this->sign) . '</a></li>
@@ -420,6 +436,12 @@ add_action('plugins_loaded', function () {
                     }
                 }
 
+                /**
+                 * Apply all functions registered with the 'woocommerce_cart_needs_shipping' hook.
+                 * This hook checks if any of the items in the shopping cart need shipping.
+                 * 
+                 * https://woocommerce.github.io/code-reference/files/woocommerce-includes-class-wc-cart.html#source-view.1538
+                 */
                 $needs_shipping = apply_filters('woocommerce_cart_needs_shipping', $needs_shipping);
 
                 // Virtual order, with virtual disabled
@@ -442,6 +464,7 @@ add_action('plugins_loaded', function () {
                     }
                 }
 
+                // Call the 'is_available' function from the parent object.
                 return parent::is_available();
             }
 
@@ -485,21 +508,39 @@ add_action('plugins_loaded', function () {
              *
              * @param WC_Order $order
              * @return int|null
+             * 
+             * This plugin supports multiple marketplaces with multiple vendors:
+             * 
+             * - Dokan Multivendor (https://wedevs.com/dokan/)
+             * - WCFM Marketplace (https://wclovers.com/)
+             * - WooCommerce Product Vendors (https://woocommerce.com/products/product-vendors/)
+             * 
+             * Because each vendor will have to be paid individually, it is important to identify
+             * which vendor needs to be paid when an order is submitted by a customer.
              */
             public function check_vendor(WC_Order $order)
             {
                 /**
                  * @var int $vendor_id
                  * @var WC_Order_Item[] $items
+                 * 
+                 * Default vendor ID is 0, so if there is no marketplace, the M-PESA
+                 * settings from this vendor will apply.
                  */
                 $vendor_id = 0;
                 $items     = $order->get_items('line_item');
 
+                // Dokan Multivendor
                 if (function_exists('dokan_get_seller_id_by_order')) {
                     $vendor_id = dokan_get_seller_id_by_order($order->get_id());
                 }
 
+                // WCFM Marketplace
                 if (function_exists('wcfm_get_vendor_id_by_post') && !empty($items)) {
+                    // TODO: This code does not take into account that there could be
+                    //       multiple vendors. Instead, the code just iterates over
+                    //       each order item and whichever item is last in the array
+                    //       that will determine both the product and vendor IDs.
                     foreach ($items as $item) {
                         $line_item  = new WC_Order_Item_Product($item);
                         $product_id = $line_item->get_product_id();
@@ -507,7 +548,12 @@ add_action('plugins_loaded', function () {
                     }
                 }
 
+                // WooCommerce Product Vendors
                 if (class_exists('WC_Product_Vendors_Utils')) {
+                    // TODO: This code does not take into account that there could be
+                    //       multiple vendors. Instead, the code just iterates over
+                    //       each order item and whichever item is last in the array
+                    //       that will determine both the product and vendor IDs.
                     foreach ($items as $item) {
                         $line_item  = new WC_Order_Item_Product($item);
                         $product_id = $line_item->get_product_id();
@@ -518,17 +564,18 @@ add_action('plugins_loaded', function () {
                     }
                 }
 
+                // Use the applicable M-PESA configuration for this order
                 add_filter('wc_mpesa_settings', function () use ($vendor_id) {
                     return array(
                         'env'        => get_user_meta($vendor_id, 'mpesa_env', true) ?? 'sandbox',
-                        'appkey'     => get_user_meta($vendor_id, 'mpesa_key', true) ?? '9v38Dtu5u2BpsITPmLcXNWGMsjZRWSTG',
-                        'appsecret'  => get_user_meta($vendor_id, 'mpesa_secret', true) ?? 'bclwIPkcRqw61yUt',
-                        'headoffice' => get_user_meta($vendor_id, 'mpesa_store', true) ?? 174379,
-                        'shortcode'  => get_user_meta($vendor_id, 'mpesa_shortcode', true) ?? 174379,
-                        'initiator'  => get_user_meta($vendor_id, 'mpesa_initiator', true) ?? 'test',
-                        'password'   => get_user_meta($vendor_id, 'mpesa_password', true) ?? 'lipia',
+                        'appkey'     => get_user_meta($vendor_id, 'mpesa_key', true) ?? '',
+                        'appsecret'  => get_user_meta($vendor_id, 'mpesa_secret', true) ?? '',
+                        'headoffice' => get_user_meta($vendor_id, 'mpesa_store', true) ?? 0,
+                        'shortcode'  => get_user_meta($vendor_id, 'mpesa_shortcode', true) ?? 0,
+                        'initiator'  => get_user_meta($vendor_id, 'mpesa_initiator', true) ?? '',
+                        'password'   => get_user_meta($vendor_id, 'mpesa_password', true) ?? '',
                         'type'       => (int) (get_user_meta($vendor_id, 'mpesa_type', true) ?? 4),
-                        'passkey'    => get_user_meta($vendor_id, 'mpesa_passkey', true) ?? 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919',
+                        'passkey'    => get_user_meta($vendor_id, 'mpesa_passkey', true) ?? '',
                         'reference'  => get_user_meta($vendor_id, 'mpesa_account', true) ?? '',
                         'signature'  => get_user_meta($vendor_id, 'mpesa_signature', true) ?? md5(rand(12, 999)),
                     );
@@ -548,14 +595,25 @@ add_action('plugins_loaded', function () {
                 $order = new WC_Order($order_id);
                 $total = $order->get_total();
                 $phone = sanitize_text_field($_POST['billing_mpesa_phone'] ?? $order->get_billing_phone());
+                // Get the site title
                 $sign  = get_bloginfo('name');
+                /** Instantiate a new SIM ToolKit object
+                 * TODO: Create an abstract base class for the STK object and implement
+                 *       country specific classes. The current implementation works with
+                 *       M-PESA in Kenya. Add another for Vodacom in Tanzania and perhaps
+                 *       other countries such as Lesotho, Zambia. Whatever is supported
+                 *       by the M-PESA API from Vodacom.
+                 */ 
                 $stk   = new STK();
-
+                // Get the applicable M-PESA settings
                 $this->check_vendor($order);
 
+                // Check if debug mode has been activated for this plugin
                 if ($this->debug) {
                     $result = $stk->authorize(get_transient('mpesa_token'))
                         ->request($phone, $total, $order_id, $sign . ' Purchase', 'WCMPesa', true);
+                    // Return the result from the authorization request as an HTTP session
+                    // variable.
                     $payload = wp_json_encode($result['requested']);
                     WC()->session->set('mpesa_request', $payload);
                 } else {
@@ -563,10 +621,15 @@ add_action('plugins_loaded', function () {
                         ->request($phone, $total, $order_id, $sign . ' Purchase', 'WCMPesa');
                 }
 
+                // Check the result from the authorization request
                 if ($result) {
+                    // Check if an error code was returned
                     if (isset($result['errorCode'])) {
+                        // Yes, return the error to the customer
                         wc_add_notice(__("(M-Pesa Error) {$result['errorCode']}: {$result['errorMessage']}.", 'woocommerce'), 'error');
 
+                        // If debug mode is enabled, also add the result from the request stored earlier
+                        // in a session variable.
                         if ($this->debug && WC()->session->get('mpesa_request')) {
                             wc_add_notice(__('Request: ' . WC()->session->get('mpesa_request'), 'woocommerce'), 'error');
                         }
@@ -577,15 +640,32 @@ add_action('plugins_loaded', function () {
                         );
                     }
 
+                    // Check if a merchant request ID is present in the response
                     if (isset($result['MerchantRequestID'])) {
+                        /**
+                         * If so update the order details
+                         *
+                         * TODO: Phone number currently hard-coded for Kenya. Perhaps the $phone
+                         *       number can be used instead but that depends on the M-PESA number
+                         *       entered. Otherwise, we'll use the country code associated with
+                         *       the STK request or request that users also enter the country code
+                         *       as part of the M-PESA number.
+                         */
                         update_post_meta($order_id, 'mpesa_phone', "254" . substr($phone, -9));
                         update_post_meta($order_id, 'mpesa_request_id', $result['MerchantRequestID']);
+                        /**
+                         * NOTE: The payment has not yet been completely processed at this point.
+                         *       This will be done after the callback URL has been called by the
+                         *       M-PESA payment provider.
+                         */
                         $order->add_order_note(
                             __("Awaiting M-Pesa confirmation of payment from {$phone} for request {$result['MerchantRequestID']}.", 'woocommerce')
                         );
 
                         /**
-                         * Remove contents from cart
+                         * Remove contents from cart as the order has been submitted. In case,
+                         * for whatever reason, the payment confirmation is not received, the
+                         * next page will allow a customer to reinitiate payment for the order.
                          */
                         WC()->cart->empty_cart();
 
@@ -597,7 +677,7 @@ add_action('plugins_loaded', function () {
                     }
                 }
 
-                wc_add_notice(__('Failed! Could not connect to Daraja', 'woocommerce'), 'error');
+                wc_add_notice(__('Failed! Could not connect to M-PESA', 'woocommerce'), 'error');
 
                 return array(
                     'result'   => 'fail',
@@ -629,19 +709,27 @@ add_action('plugins_loaded', function () {
                     $type  = ($stk->type === 4) ? 'Pay Bill' : 'Buy Goods and Services';
                     $return_url = $order->get_checkout_order_received_url();
 
+                    /**
+                     * Allow a customer to verify the payment status for their order. In
+                     * case the process failed, they can reinitiate the STK process to
+                     * pay for the order.
+                     * 
+                     * Possible improvement: After a 1 minute timeout, reinitiate the STK
+                     *                       automatically.
+                     */
                     echo
                     '<section class="woocommerce-order-details" id="resend_stk">
                         <input type="hidden" id="current_order" value="' . $order_id . '">
                         <input type="hidden" id="return_url" value="' . $return_url . '">
                         <input type="hidden" id="payment_method" value="' . $order->get_payment_method() . '">
                         <p class="checking" id="mpesa_receipt">Confirming receipt, please wait</p>
-                        <table class="woocommerce-table woocommerce-table--order-details shop_table order_details" id="renitiate-mpesa-table">
+                        <table class="woocommerce-table woocommerce-table--order-details shop_table order_details" id="reinitiate-mpesa-table">
                             <tbody>
                                 <tr class="woocommerce-table__line-item order_item">
                                     <td class="woocommerce-table__product-name product-name">
-                                        <form action="' . home_url("wc-api/lipwa_request") . '" method="POST" id="renitiate-mpesa-form">
+                                        <form action="' . home_url("wc-api/lipwa_request") . '" method="POST" id="reinitiate-mpesa-form">
                                             <input type="hidden" name="order" value="' . $order_id . '">
-                                            <button id="renitiate-mpesa-button" class="button alt" type="submit">' . ($this->settings['resend'] ?? 'Resend STK Push') . '</button>
+                                            <button id="reinitiate-mpesa-button" class="button alt" type="submit">' . ($this->settings['resend'] ?? 'Resend STK Push') . '</button>
                                         </form>
                                     </td>
                                 </tr>
@@ -649,6 +737,10 @@ add_action('plugins_loaded', function () {
                         </table>
                     </section>';
 
+                    /**
+                     * In case Consumer To Business is active, display instructions to pay
+                     * manually.
+                     */
                     if ($this->enable_c2b) {
                         echo
                         '<section class="woocommerce-order-details" id="missed_stk">
@@ -656,7 +748,7 @@ add_action('plugins_loaded', function () {
                                 <thead>
                                     <tr>
                                         <th class="woocommerce-table__product-name product-name">
-                                            ' . __("STK Push didn't work? Pay Manually Via M-PESA", "woocommerce") . '
+                                            ' . __("STK Push didn't work? Pay manually via M-PESA", "woocommerce") . '
                                         </th>'
                             . ($this->enable_bonga ?
                                 '<th>&nbsp;</th>' : '') . '
@@ -697,6 +789,8 @@ add_action('plugins_loaded', function () {
             }
 
             /**
+             * Display M-PESA request results if debug mode has been enabled.
+             * 
              * @since 1.20.79
              */
             public function request_body()
@@ -732,6 +826,11 @@ add_action('plugins_loaded', function () {
                 }
             }
 
+            /**
+             * Resend STK push to customer as part of the reinitiate request. This function is
+             * called when the initial request has failed, the customer was notified and reinitiated
+             * the payment process.
+             */
             public function resend_request()
             {
                 $order_id = sanitize_text_field($_POST['order']);
@@ -752,12 +851,35 @@ add_action('plugins_loaded', function () {
             }
 
             /**
-             * Process webhook information such as IPN
+             * Process webhook information such as IPN (Instant Payment Notification)
+             * 
+             * This function handles the following actions:
+             * 
+             * 1. Request  : Resend payment request (STK push message) to customer
+             * 2. Validate : Validate the response data, received from M-PESA
+             * 3. Reconcile: Reconcile response and order data and change status if the response
+             *               data indicates success. 
+             * 4. Confirm  : Update the order status based on the amount received from a customer:
+             *               amountPaid >= amountDue: completed
+             *               amountPaid < amountDue : on-hold
+             * 5. Register : Register C2B validation and confirmation callback URLs:
+             *               - Confirmation URL: wc-api/lipwa?action=confirm
+             *               - Validation URL  : wc-api/lipwa?action=validate
+             * 6. Status   : Request the status of a transaction. Two end-points are defined
+             *               - Result URL       : wc-api/lipwa?action=result
+             *               - Queue timeout URL: wc-api/lipwa?action=timeout
+             * 7. Result   : Parse the result of a transaction status request
+             *               Note: It appears that a transaction status request is only used in
+             *                     the context of a customer refund. After verifying that the
+             *                     transaction was successfully reversed, the order status is
+             *                     changed to 'refunded'.
+             * 8. Timeout  : Handles a timeout of a transaction status request
              *
              * @since 2.3.1
              */
             public function webhook()
             {
+                // Default action is 'validate'
                 $action = sanitize_text_field($_GET['action']) ?? 'validate';
                 $stk    = new STK();
                 $c2b    = new C2B();
@@ -780,20 +902,62 @@ add_action('plugins_loaded', function () {
 
                         wp_send_json($result);
                         break;
+
                     case "validate":
+                        // TODO: Calling the validate function without a callback function
+                        //       to check the M-PESA response data, will always return
+                        //       SUCCESS. Perhaps this cannot be implemented yet. Check the
+                        //       documentation to see if validation for M-PESA (Tanzania)
+                        //       can be enhanced.
                         wp_send_json($stk->validate());
                         break;
 
                     case "reconcile":
+                        /**
+                         * Get the site title from the HTTP GET variables. Probably necessary
+                         * for multi-vendor support as a single webshop's site title would be
+                         * fairly static.
+                         */
                         $sign = sanitize_text_field($_GET['sign']);
 
+                        /**
+                         * Call 'reconcile' with a callback function using $response as a normal
+                         * variable but alway use the $sign (Site Title) value created when the
+                         * anonymous callback function was instantiated. The anonymous callback
+                         * function returns a boolean:
+                         * 
+                         * False: Reconciliation failed: Reasons:
+                         *            - The order is already completed
+                         *            - No response body was provided
+                         *            - No order could be found
+                         * True : Reconciliation successful. Order status was updated based on
+                         *        the response body passed to the callback function. Possible
+                         *        order states:
+                         *            - 'completed': Full payment was received
+                         *            - 'on-hold'  : Payment has not yet been confirmed
+                         *  
+                         * Send back the response as JSON to the initiator of the AJAX request,
+                         * (probably) the customer's browser window.
+                         */
                         wp_send_json($stk->reconcile(function (array $response) use ($sign) {
-                            //    if (isset($sign) && $sign === $this->get_option('signature')) {
                             if (isset($response['Body'])) {
                                 $stkCallback       = $response['Body']['stkCallback'];
-                                $resultCode        = $stkCallback['ResultCode'];
+                                /** 
+                                 * CHANGED: $resultCode can have the following values:
+                                 * 
+                                 * 0   : No error occurred
+                                 * 1032: Request cancelled by user
+                                 * 
+                                 * Any non-zero result should be considered an error.
+                                 *
+                                 * Source: https://developer.safaricom.co.ke/Documentation 
+                                 */
+                                $resultCode        = (int) $stkCallback['ResultCode'];
                                 $resultDesc        = $stkCallback['ResultDesc'];
                                 $merchantRequestID = $stkCallback['MerchantRequestID'];
+                                // Get the order ID from the HTTP GET parameters or search for the
+                                // order ID by using the M-PESA merchant request ID to search for
+                                // the order.
                                 $order_id          = sanitize_text_field($_GET['order']) ?? wc_mpesa_post_id_by_meta_key_and_value('mpesa_request_id', $merchantRequestID);
 
                                 if (wc_get_order($order_id)) {
@@ -803,9 +967,14 @@ add_action('plugins_loaded', function () {
                                         return false;
                                     }
 
-                                    if (isset($stkCallback['CallbackMetadata'])) {
+                                    // Check if the response provided metadata to parse AND the
+                                    // transaction was successful. (ADDED)
+                                    if (isset($stkCallback['CallbackMetadata']) && $resultCode === 0) {
+                                        // Parse the metadata so that individual values can be
+                                        // accessed by their name.
                                         $parsed = array_column($stkCallback['CallbackMetadata']['Item'], 'Value', 'Name');
-
+                                        // Update the order transaction information and change
+                                        // the status to 'completed'.
                                         $order->set_transaction_id($parsed['MpesaReceiptNumber']);
                                         $order->save();
                                         $order->update_status(
@@ -813,6 +982,10 @@ add_action('plugins_loaded', function () {
                                             __("Full M-Pesa Payment Received From {$parsed['PhoneNumber']}. Transaction ID {$parsed['MpesaReceiptNumber']}.")
                                         );
 
+                                        // TODO: Check the purpose of this function. It could be
+                                        //       an integration with an external platform or it
+                                        //       could be a security problem where order data is
+                                        //       leaked.
                                         do_action('send_to_external_api', $order, $parsed, $this->settings);
                                     } else {
                                         $order->update_status(
@@ -824,7 +997,6 @@ add_action('plugins_loaded', function () {
                                     return true;
                                 }
                             }
-                            //    }
 
                             return false;
                         }));
@@ -833,58 +1005,78 @@ add_action('plugins_loaded', function () {
                     case "confirm":
                         wp_send_json($stk->confirm(function ($response) {
                             if (empty($response)) {
+                                // TODO: Change to 'translatable' string
                                 wp_send_json(
                                     ['Error' => 'No response data received']
                                 );
+
+                                // ADDED: Exiting the callback now
+                                return false;
                             }
 
-                            $MpesaReceiptNumber = $response['TransID'];
-                            $TransactionDate    = $response['TransTime'];
-                            $Amount             = (int) $response['TransAmount'];
-                            $BillRefNumber      = $response['BillRefNumber'];
-                            $PhoneNumber        = $response['MSISDN'];
-                            $FirstName          = $response['FirstName'];
-                            $MiddleName         = $response['MiddleName'];
-                            $LastName           = $response['LastName'];
+                            // Parse the response
+                            $mpesaReceiptNumber = $response['TransID'];
+                            $transactionDate    = $response['TransTime'];
+                            $amount             = (int) $response['TransAmount'];
+                            $billRefNumber      = $response['BillRefNumber'];
+                            $phoneNumber        = $response['MSISDN'];
+                            $firstName          = $response['FirstName'];
+                            $middleName         = $response['MiddleName'];
+                            $lastName           = $response['LastName'];
                             $parsed             = compact("Amount", "MpesaReceiptNumber", "TransactionDate", "PhoneNumber");
-                            $order_id           = $BillRefNumber ?? wc_mpesa_post_id_by_meta_key_and_value('mpesa_reference', $BillRefNumber);
+                            $order_id           = $billRefNumber ?? wc_mpesa_post_id_by_meta_key_and_value('mpesa_reference', $BillRefNumber);
 
+                            // Check if this is regarding a valid order
                             if (wc_get_order($order_id)) {
                                 $order       = new \WC_Order($order_id);
                                 $total       = round($order->get_total());
-                                $ipn_balance = $total - round($Amount);
+                                $ipn_balance = $total - round($amount);
 
                                 if ($order->get_status() === 'completed') {
-                                    return;
+                                    // Exit, order status was already completed.
+                                    // ADDED: false
+                                    return false;
                                 }
 
                                 if ($ipn_balance === 0) {
+                                    // Order has been paid in full, update order status
                                     $order->update_status(
                                         $this->get_option('completion', 'completed'),
-                                        __("Full M-Pesa Payment Received From {$PhoneNumber}. Transaction ID {$MpesaReceiptNumber}")
+                                        __("Full M-Pesa Payment Received From {$phoneNumber}. Transaction ID {$mpesaReceiptNumber}")
                                     );
-                                    $order->set_transaction_id($MpesaReceiptNumber);
+                                    $order->set_transaction_id($mpesaReceiptNumber);
                                     $order->save();
 
+                                    // TODO: Check the purpose of this function. It could be
+                                    //       an integration with an external platform or it
+                                    //       could be a security problem where order data is
+                                    //       leaked.
                                     do_action('send_to_external_api', $order, $parsed, $this->settings);
 
                                     return true;
                                 } elseif ($ipn_balance < 0) {
+                                    // Customer paid too much, update order status. (How would
+                                    // that be possible with an STK push message which specifies
+                                    // how much should be paid?)
                                     $currency = get_woocommerce_currency();
                                     $order->update_status(
                                         $this->get_option('completion', 'completed'),
-                                        __("{$PhoneNumber} has overpayed by {$currency} {$ipn_balance}. Transaction ID {$MpesaReceiptNumber}")
+                                        __("{$phoneNumber} has overpayed by {$currency} " . abs($ipn_balance) . ". Transaction ID {$mpesaReceiptNumber}")
                                     );
-                                    $order->set_transaction_id($MpesaReceiptNumber);
+                                    $order->set_transaction_id($mpesaReceiptNumber);
                                     $order->save();
 
+                                    // TODO: Check the purpose of this function. It could be
+                                    //       an integration with an external platform or it
+                                    //       could be a security problem where order data is
+                                    //       leaked.
                                     do_action('send_to_external_api', $order, $parsed, $this->settings);
 
                                     return true;
                                 } else {
                                     $order->update_status(
                                         'on-hold',
-                                        __("M-Pesa Payment from {$PhoneNumber} Incomplete")
+                                        __("M-Pesa Payment from {$phoneNumber} incomplete")
                                     );
                                 }
                             }
@@ -894,6 +1086,16 @@ add_action('plugins_loaded', function () {
                         break;
 
                     case "register":
+                        /** 
+                         * Hard to read code:
+                         * 
+                         * - Call the authorize function on the C2B instance with a possibly cached
+                         *   result from a previous authorization request. Use the cached result if
+                         *   it is still valid. The function returns the C2B instance.
+                         * - Call the register function on the C2B instance and provide a callback
+                         *   function to parse the results from the register function. The callback
+                         *   defined here parses the response and updates the GUI state accordingly.
+                         */  
                         $c2b->authorize(get_transient('mpesa_token'))->register(function ($response) {
                             $status = isset($response['ResponseDescription']) ? 'success' : 'fail';
                             if ($status === 'fail') {
@@ -938,7 +1140,7 @@ add_action('plugins_loaded', function () {
                         $ReceiptNo         = $ResultParameter[0]['Value'];
                         $ConversationID    = $ResultParameter[0]['Value'];
                         $FinalisedTime     = $ResultParameter[0]['Value'];
-                        $Amount            = $ResultParameter[0]['Value'];
+                        $amount            = $ResultParameter[0]['Value'];
                         $TransactionStatus = $ResultParameter[0]['Value'];
                         $ReasonType        = $ResultParameter[0]['Value'];
                         $TransactionReason = $ResultParameter[0]['Value'];
@@ -1025,6 +1227,10 @@ add_action('plugins_loaded', function () {
                                         __("Full M-Pesa Payment Received From {$parsed['PhoneNumber']}. Transaction ID {$parsed['MpesaReceiptNumber']}.")
                                     );
 
+                                    // TODO: Check the purpose of this function. It could be
+                                    //       an integration with an external platform or it
+                                    //       could be a security problem where order data is
+                                    //       leaked.
                                     do_action('send_to_external_api', $order, $parsed, $this->settings);
                                 } else {
                                     $order->update_status(

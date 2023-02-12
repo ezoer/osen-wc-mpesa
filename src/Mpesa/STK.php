@@ -113,14 +113,19 @@ class STK
     }
 
     /**
-     * Function to generate access token
+     * Function to generate or store a pre-existing access token
      *
      * @return STK
+     * 
+     * Note: This code is virtually a duplicate of STK->authorize. The only significant
+	 *       difference is that each function returns it's own object type.
      */
     public function authorize($token = null)
     {
         if (is_null($token) || !$token) {
+            // Create credentials in the required format
             $credentials = base64_encode($this->appkey . ':' . $this->appsecret);
+            // Request authorization token from M-PESA
             $response    = wp_remote_get(
                 $this->url . '/oauth/v1/generate?grant_type=client_credentials',
                 array(
@@ -130,8 +135,16 @@ class STK
                 )
             );
 
+            // Check if a valid response was returned, if so parse the JSON response
             $return      = is_wp_error($response) ? 'null' : json_decode($response['body']);
+            // If the access token in the JSON response was set,
             $this->token = isset($return->access_token) ? $return->access_token : '';
+            // configure a WordPress transient with a validity of 55 minutes. For the
+            // duration of the validity period, the plugin can re-use this authorization
+            // token.
+            //
+            // TODO: Change validity into a constant at the class level and check what
+            //       validity is valid for M-PESA Tanzania's implementation.
             set_transient('mpesa_token', $this->token, 60 * 55);
         } else {
             $this->token = $token;
@@ -143,7 +156,8 @@ class STK
     /**
      * Function to process response data for validation
      *
-     * @param callable $callback - Optional callable function to process the response - must return boolean
+     * @param callable $callback - Optional callable function to process the response
+     *                           - must return boolean: False = Fail, True = Success
      * @return array
      */
     public function validate($callback = null, $data = [])
@@ -171,17 +185,24 @@ class STK
     /**
      * Function to process response data for confirmation
      *
-     * @param callable $callback - Optional callable function to process the response - must return boolean
+     * @param callable $callback - Optional callable function to process the response
+     *                           - must return boolean
      * @return array
      */
     public function confirm($callback = null, $data = [])
     {
+        // Check if there is a callback function to call
         if (is_null($callback) || empty($callback)) {
             return array(
                 'ResultCode' => 0,
                 'ResultDesc' => 'Success',
             );
         } else {
+            /** Yes, call the callback function:
+             * 
+             * True : Success
+             * False: Error
+             */
             if (!call_user_func_array($callback, array($data))) {
                 return array(
                     'ResultCode' => 1,
@@ -264,8 +285,11 @@ class STK
      */
     public function reconcile($callback = null, $data = null)
     {
+        // If no data is provided, parse the raw HTTP POST data (php://input) into a PHP object
         $response = is_null($data) ? json_decode(file_get_contents('php://input'), true) : $data;
 
+        // If a callback function was provided, return success if the callback result is true
+        // or an error if the callback result is false.
         return is_null($callback)
             ? array('resultCode' => 0, 'resultDesc' => 'Reconciliation successful')
             : (call_user_func_array($callback, array($response)) ? array('resultCode' => 0, 'resultDesc' => 'Reconciliation successful')
@@ -297,11 +321,12 @@ class STK
     public function status($transaction, $command = 'TransactionStatusQuery', $remarks = 'Transaction Status Query', $occasion = '')
     {
         $env       = $this->env;
+        // Encrypt the initiator password using the M-PESA public key certificate
         $plain_text = $this->password;
+        // Load the M-PESA public key from file
         $public_key = file_get_contents(__DIR__ . "/cert/{$env}/cert.cer");
-
+        // Encrypt the plain text password
         openssl_public_encrypt($plain_text, $encrypted, $public_key, OPENSSL_PKCS1_PADDING);
-
         $password  = base64_encode($encrypted);
         $post_data = array(
             'Initiator'          => $this->initiator,
